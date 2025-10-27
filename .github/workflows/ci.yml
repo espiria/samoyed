@@ -113,7 +113,7 @@ jobs:
           toolchain: 1.90.0
 
       - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@38e8f5e4c386b611d51e8aa997b9a06a3c8eb67a # v1.15.6
+        uses: cargo-bins/cargo-binstall@afcf9780305558bcc9e4bc94b7589ab2bb8b6106 # v1.15.9
 
       - name: Install and run security audit
         run: |
@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload audit results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: security-audit
           path: audit.json
@@ -459,7 +459,7 @@ jobs:
           save-if: false
 
       - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@38e8f5e4c386b611d51e8aa997b9a06a3c8eb67a # v1.15.6
+        uses: cargo-bins/cargo-binstall@afcf9780305558bcc9e4bc94b7589ab2bb8b6106 # v1.15.9
 
       - name: Install and run tarpaulin
         run: |

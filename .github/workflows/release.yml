@@ -135,7 +135,7 @@ jobs:
           cargo cyclonedx --format xml --spec-version 1.5 --override-filename sbom
 
       - name: Upload security artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: security-reports
           path: |
@@ -212,7 +212,7 @@ jobs:
 
       - name: Install cross
         if: matrix.use_cross
-        uses: taiki-e/install-action@522492a8c115f1b6d4d318581f09638e9442547b # v2.62.21
+        uses: taiki-e/install-action@c5b1b6f479c32f356cc6f4ba672a47f63853b13b # v2.62.38
         with:
           tool: cross
 
@@ -271,7 +271,7 @@ jobs:
           echo "archive=${ARCHIVE_BASENAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: binary-${{ matrix.target }}
           path: dist/*
@@ -289,13 +289,13 @@ jobs:
       attestations: write  # Required for GitHub attestations
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           path: artifacts
           pattern: binary-*
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
         with:
           cosign-release: 'v2.4.0'
 
@@ -328,7 +328,7 @@ jobs:
           done
 
       - name: Upload attestation artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: attestations
           path: |
@@ -349,7 +349,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@522492a8c115f1b6d4d318581f09638e9442547b # v2.62.21
+        uses: taiki-e/install-action@c5b1b6f479c32f356cc6f4ba672a47f63853b13b # v2.62.38
         with:
           tool: git-cliff
 
@@ -377,7 +377,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload changelog
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: changelog
           path: changelog.md
@@ -396,7 +396,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           path: release-artifacts
 
@@ -464,7 +464,7 @@ jobs:
           EOF
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@62c96d0c4e8a889135c1f3a25910db8dbe0e85f7 # v2.3.4
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
         with:
           tag_name: v${{ needs.prepare-release.outputs.version }}
           name: Samoyed v${{ needs.prepare-release.outputs.version }}
@@ -519,7 +519,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install cosign
-        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
       - name: Verify signatures
         run: |
