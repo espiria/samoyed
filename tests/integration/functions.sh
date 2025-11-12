@@ -42,19 +42,23 @@ if [ -z "${SAMOYED_BIN:-}" ]; then
         SAMOYED_BIN="$(command -v samoyed || echo /usr/local/bin/samoyed)"
     else
         # Try target/release/samoyed first (normal builds without --target)
-        if [ -f "$(pwd)/target/release/samoyed" ]; then
+        if [ -f "target/release/samoyed" ]; then
             SAMOYED_BIN="$(pwd)/target/release/samoyed"
-        else
-            # Try to find in target-specific directories (CI builds with --target flag)
-            # Check common target triples
-            for target_binary in target/*/release/samoyed; do
-                if [ -f "$target_binary" ]; then
-                    SAMOYED_BIN="$(pwd)/$target_binary"
+        # Try target-specific directories (CI builds with --target flag)
+        elif [ -d "target" ]; then
+            # Look for target-specific builds in subdirectories
+            for target_dir in target/*; do
+                # Skip if not a directory or is just 'release' or other special dirs
+                if [ -d "$target_dir" ] && [ -f "$target_dir/release/samoyed" ]; then
+                    SAMOYED_BIN="$(pwd)/$target_dir/release/samoyed"
                     break
                 fi
             done
             # Fallback to default path if still not found
             SAMOYED_BIN="${SAMOYED_BIN:-$(pwd)/target/release/samoyed}"
+        else
+            # Default path as ultimate fallback
+            SAMOYED_BIN="$(pwd)/target/release/samoyed"
         fi
     fi
 fi
