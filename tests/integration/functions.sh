@@ -47,15 +47,20 @@ if [ -z "${SAMOYED_BIN:-}" ]; then
         # Try target-specific directories (CI builds with --target flag)
         elif [ -d "target" ]; then
             # Look for target-specific builds in subdirectories
+            samoyed_bin_found=0
             for target_dir in target/*; do
                 # Skip if not a directory or is just 'release' or other special dirs
                 if [ -d "$target_dir" ] && [ -f "$target_dir/release/samoyed" ]; then
                     SAMOYED_BIN="$(pwd)/$target_dir/release/samoyed"
+                    samoyed_bin_found=1
                     break
                 fi
             done
             # Fallback to default path if still not found
-            SAMOYED_BIN="${SAMOYED_BIN:-$(pwd)/target/release/samoyed}"
+            if [ "$samoyed_bin_found" -eq 0 ]; then
+                SAMOYED_BIN="$(pwd)/target/release/samoyed"
+            fi
+            unset samoyed_bin_found
         else
             # Default path as ultimate fallback
             SAMOYED_BIN="$(pwd)/target/release/samoyed"
@@ -399,11 +404,19 @@ build_samoyed() {
 
     # Outside containers, build if needed
     if [ ! -f "$SAMOYED_BIN" ]; then
-        echo "Building Samoyed binary..."
+        echo "Binary not found at: $SAMOYED_BIN"
+        echo "Attempting to build..."
         cargo build --release --quiet
 
+        # Re-check after build - might be in target/release now
         if [ ! -f "$SAMOYED_BIN" ]; then
-            error "Failed to build Samoyed binary at $SAMOYED_BIN"
+            # Try to find it in target/release after build
+            if [ -f "target/release/samoyed" ]; then
+                SAMOYED_BIN="$(pwd)/target/release/samoyed"
+                echo "Found binary at: $SAMOYED_BIN"
+            else
+                error "Failed to build Samoyed binary at $SAMOYED_BIN"
+            fi
         fi
 
         ok "Samoyed binary built successfully"
