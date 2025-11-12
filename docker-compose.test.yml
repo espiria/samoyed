@@ -1,0 +1,85 @@
+version: '3.8'
+
+# Docker Compose configuration for parallel integration testing
+# Usage: docker-compose -f docker-compose.test.yml up --abort-on-container-exit
+
+services:
+  test-01-default:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-01-default
+    environment:
+      TEST_NAME: 01_default.sh
+
+  test-02-custom-dir:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-02-custom-dir
+    environment:
+      TEST_NAME: 02_custom_dir.sh
+
+  test-03-from-subdir:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-03-from-subdir
+    environment:
+      TEST_NAME: 03_from_subdir.sh
+
+  test-04-not-git-dir:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-04-not-git-dir
+    environment:
+      TEST_NAME: 04_not_git_dir.sh
+
+  test-05-git-not-found:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-05-git-not-found
+    environment:
+      TEST_NAME: 05_git_not_found.sh
+
+  test-06-command-not-found:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-06-command-not-found
+    environment:
+      TEST_NAME: 06_command_not_found.sh
+
+  test-07-strict-mode:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-07-strict-mode
+    environment:
+      TEST_NAME: 07_strict_mode.sh
+
+  test-08-samoyed-0:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-08-samoyed-0
+    environment:
+      TEST_NAME: 08_samoyed_0.sh
+
+  test-09-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-09-init
+    environment:
+      TEST_NAME: 09_init.sh
+
+  test-10-time:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-10-time
+    environment:
+      TEST_NAME: 10_time.sh

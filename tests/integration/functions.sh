@@ -14,9 +14,33 @@ set -eu
 # runs inside a dedicated `mktemp -d` workspace outside the Samoyed repo
 # to avoid accidentally touching the project Git state.
 
+# Detect if running in a container
+is_containerized() {
+    # Check for Docker
+    [ -f /.dockerenv ] && return 0
+
+    # Check for Podman
+    [ -f /run/.containerenv ] && return 0
+
+    # Check environment variable
+    [ -n "${SAMOYED_TEST_CONTAINER:-}" ] && return 0
+
+    # Check cgroup for docker/containerd
+    if [ -f /proc/1/cgroup ]; then
+        grep -qE 'docker|lxc|containerd' /proc/1/cgroup 2>/dev/null && return 0
+    fi
+
+    return 1
+}
+
 # Get the absolute path to the Samoyed binary
-# We build it in release mode for testing real-world performance
-SAMOYED_BIN="${SAMOYED_BIN:-$(pwd)/target/release/samoyed}"
+# In containers, use the pre-installed binary in PATH
+# Outside containers, build it in release mode for testing real-world performance
+if is_containerized; then
+    SAMOYED_BIN="$(command -v samoyed || echo /usr/local/bin/samoyed)"
+else
+    SAMOYED_BIN="${SAMOYED_BIN:-$(pwd)/target/release/samoyed}"
+fi
 
 # Remember the repository root so cleanup can return before deleting temp dirs
 ORIGINAL_WORKDIR="$(pwd)"
@@ -336,6 +360,16 @@ expect_dir_exists() {
 # Build Samoyed binary if not already built
 # This ensures we're testing the current code
 build_samoyed() {
+    # In containers, binary is pre-installed
+    if is_containerized; then
+        if ! command -v samoyed >/dev/null 2>&1; then
+            error "samoyed binary not found in container PATH"
+        fi
+        echo "Using pre-built samoyed binary: $(command -v samoyed)"
+        return 0
+    fi
+
+    # Outside containers, build if needed
     if [ ! -f "$SAMOYED_BIN" ]; then
         echo "Building Samoyed binary..."
         cargo build --release --quiet

@@ -1,0 +1,63 @@
+# Docker ignore file for Samoyed
+# Reduces build context size and improves build performance
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation
+README.md
+CLAUDE.md
+AGENTS.md
+.docs/
+.assets/
+
+# Nix
+flake.nix
+flake.lock
+result
+result-*
+
+# CI/CD (except workflows we might need)
+.gitlab-ci.yml
+.travis.yml
+
+# Testing artifacts
+.tarpaulin.toml
+tarpaulin-report.html
+cobertura.xml
+lcov.info
+
+# Temporary files
+*.log
+*.tmp
+/tmp/
+
+# Package files
+*.deb
+*.rpm
+*.tar.gz
+
+# macOS
+.DS_Store
+
+# Keep these for the build:
+# - Cargo.toml
+# - Cargo.lock
+# - src/
+# - assets/
+# - clippy.toml
+# - tests/integration/
