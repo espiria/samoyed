@@ -30,7 +30,7 @@ test:
 # Run integration tests locally (serial)
 test-integration: build
 	@echo "Running integration tests..."
-	@cd tests/integration && for test in 0*.sh; do \
+	@cd tests/integration && for test in [0-9]*.sh; do \
 		echo "Running $$test..."; \
 		./$$test || exit 1; \
 	done
@@ -38,7 +38,7 @@ test-integration: build
 # Build and test in Docker (serial)
 test-docker:
 	docker build -t samoyed-test:latest -f Dockerfile .
-	@for test in tests/integration/0*.sh; do \
+	@for test in tests/integration/[0-9]*.sh; do \
 		test_name=$$(basename $$test); \
 		echo "Running $$test_name in Docker..."; \
 		docker run --rm -e TEST_NAME=$$test_name samoyed-test:latest || exit 1; \

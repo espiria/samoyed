@@ -27,6 +27,11 @@ TEST_SCRIPTS=(
     08_samoyed_0.sh
     09_init.sh
     10_time.sh
+    11_lfs_flags.sh
+    12_lfs_subcommand.sh
+    13_hooks_d.sh
+    14_existing_hooks.sh
+    15_combined_features.sh
 )
 
 echo ""

@@ -83,3 +83,43 @@ services:
     container_name: samoyed-test-10-time
     environment:
       TEST_NAME: 10_time.sh
+
+  test-11-lfs-flags:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-11-lfs-flags
+    environment:
+      TEST_NAME: 11_lfs_flags.sh
+
+  test-12-lfs-subcommand:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-12-lfs-subcommand
+    environment:
+      TEST_NAME: 12_lfs_subcommand.sh
+
+  test-13-hooks-d:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-13-hooks-d
+    environment:
+      TEST_NAME: 13_hooks_d.sh
+
+  test-14-existing-hooks:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-14-existing-hooks
+    environment:
+      TEST_NAME: 14_existing_hooks.sh
+
+  test-15-combined-features:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samoyed-test-15-combined-features
+    environment:
+      TEST_NAME: 15_combined_features.sh

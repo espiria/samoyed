@@ -86,6 +86,11 @@ docker run --rm -e TEST_NAME=01_default.sh samoyed-test
 | `08_samoyed_0.sh` | SAMOYED=0 bypass functionality |
 | `09_init.sh` | Init command comprehensive tests |
 | `10_time.sh` | Performance and timing tests |
+| `11_lfs_flags.sh` | Git LFS integration with --with-lfs and --no-lfs flags |
+| `12_lfs_subcommand.sh` | samoyed lfs enable/disable/status subcommands |
+| `13_hooks_d.sh` | Hook composition mode (--hooks-d) and execution order |
+| `14_existing_hooks.sh` | Existing hook detection, warnings, and import |
+| `15_combined_features.sh` | Combined LFS + hooks.d features |
 
 ## Architecture
 

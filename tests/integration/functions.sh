@@ -36,10 +36,13 @@ is_containerized() {
 # Get the absolute path to the Samoyed binary
 # In containers, use the pre-installed binary in PATH
 # Outside containers, build it in release mode for testing real-world performance
-if is_containerized; then
-    SAMOYED_BIN="$(command -v samoyed || echo /usr/local/bin/samoyed)"
-else
-    SAMOYED_BIN="${SAMOYED_BIN:-$(pwd)/target/release/samoyed}"
+# Honor existing SAMOYED_BIN if already set (for manual test runs or special cases)
+if [ -z "${SAMOYED_BIN:-}" ]; then
+    if is_containerized; then
+        SAMOYED_BIN="$(command -v samoyed || echo /usr/local/bin/samoyed)"
+    else
+        SAMOYED_BIN="$(pwd)/target/release/samoyed"
+    fi
 fi
 
 # Remember the repository root so cleanup can return before deleting temp dirs
@@ -360,8 +363,15 @@ expect_dir_exists() {
 # Build Samoyed binary if not already built
 # This ensures we're testing the current code
 build_samoyed() {
-    # In containers, binary is pre-installed
+    # In containers, binary is pre-installed (unless SAMOYED_BIN points to a valid file)
     if is_containerized; then
+        # Check if SAMOYED_BIN is explicitly set and points to an existing file
+        if [ -n "$SAMOYED_BIN" ] && [ -f "$SAMOYED_BIN" ] && [ -x "$SAMOYED_BIN" ]; then
+            echo "Using binary from SAMOYED_BIN: $SAMOYED_BIN"
+            return 0
+        fi
+
+        # Otherwise expect samoyed in PATH
         if ! command -v samoyed >/dev/null 2>&1; then
             error "samoyed binary not found in container PATH"
         fi
