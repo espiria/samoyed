@@ -22,3 +22,9 @@ target/
 # Claude Code local settings - user-specific configurations that should
 # not be shared across development environments
 .claude/settings.local.json
+
+# ============================================================================
+# Documentation Build Output
+# ============================================================================
+# mdBook generated HTML output directory
+docs/book/

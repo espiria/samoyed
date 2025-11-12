@@ -1,6 +1,7 @@
 # Samoyed
 
 [![Crates.io Version](https://img.shields.io/crates/v/samoyed)](https://crates.io/crates/samoyed)
+[![Documentation](https://img.shields.io/badge/docs-mdbook-blue)](https://nutthead.github.io/samoyed/)
 
 > A single-binary, minimalist, ultra-fast Git hooks manager for every platform.
 
