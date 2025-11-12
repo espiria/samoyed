@@ -57,6 +57,9 @@ const DEFAULT_SAMOYED_DIR: &str = ".samoyed";
 /// Directory name for wrapper scripts within the Samoyed directory.
 const WRAPPER_DIR_NAME: &str = "_";
 
+/// Directory name for hook composition (hooks.d pattern).
+const HOOKS_D_DIR_NAME: &str = "hooks.d";
+
 /// Filename for the embedded wrapper script within the wrapper directory.
 const WRAPPER_SCRIPT_NAME: &str = "samoyed";
 
@@ -166,6 +169,63 @@ fi
 . "$(dirname "$0")/samoyed"
 "#;
 
+/// Shell script template for Git hooks in composition mode (hooks.d runner).
+///
+/// This template runs all executable scripts in the corresponding hooks.d subdirectory
+/// in lexicographic order, allowing multiple hooks to be chained together.
+const HOOK_SCRIPT_TEMPLATE_HOOKS_D: &str = r#"#!/usr/bin/env sh
+# SAMOYED_HOOKS_D - Hook composition mode
+hook_name="$(basename "$0")"
+hooks_d_dir="$(dirname "$0")/../hooks.d"
+
+# Run all hooks for this hook type in order
+if [ -d "$hooks_d_dir" ]; then
+    for hook_script in "$hooks_d_dir"/*."$hook_name"; do
+        if [ -x "$hook_script" ]; then
+            "$hook_script" "$@" || exit $?
+        fi
+    done
+fi
+
+# Also run user hook if it exists
+. "$(dirname "$0")/samoyed"
+"#;
+
+/// Shell script template for Git hooks in composition mode with LFS integration.
+///
+/// Combines both LFS calls and hooks.d pattern execution.
+const HOOK_SCRIPT_TEMPLATE_HOOKS_D_WITH_LFS: &str = r#"#!/usr/bin/env sh
+# SAMOYED_LFS_BEGIN - Auto-managed Git LFS integration
+if command -v git-lfs >/dev/null 2>&1; then
+    hook_name="$(basename "$0")"
+    case "$hook_name" in
+        pre-push)
+            git lfs pre-push "$@" || exit $?
+            ;;
+        post-checkout|post-commit|post-merge)
+            git lfs post-checkout "$@"
+            ;;
+    esac
+fi
+# SAMOYED_LFS_END
+
+# SAMOYED_HOOKS_D - Hook composition mode
+hook_name="$(basename "$0")"
+hooks_d_dir="$(dirname "$0")/../hooks.d"
+
+# Run all hooks for this hook type in order
+if [ -d "$hooks_d_dir" ]; then
+    for hook_script in "$hooks_d_dir"/*."$hook_name"; do
+        if [ -x "$hook_script" ]; then
+            "$hook_script" "$@" || exit $?
+        fi
+    done
+fi
+
+# Also run user hook if it exists
+. "$(dirname "$0")/samoyed"
+"#;
+
 /// Sample pre-commit hook template with placeholder comments for user customization.
 const SAMPLE_PRE_COMMIT_CONTENT: &str = r#"#!/usr/bin/env sh
 # Add your pre-commit checks here. For example:
@@ -191,6 +251,15 @@ const ERR_LFS_NOT_INSTALLED: &str = "Error: git-lfs is not installed or not in P
 /// Error message when Samoyed is not initialized in the repository.
 const ERR_SAMOYED_NOT_INITIALIZED: &str =
     "Error: Samoyed is not initialized. Run 'samoyed init' first";
+
+/// Warning message when existing hooks are detected.
+const WARN_EXISTING_HOOKS: &str = "Warning: Existing Git hooks detected";
+
+/// Info message about hook composition mode.
+const INFO_HOOKS_D_MODE: &str = "Using hook composition mode (hooks.d/)";
+
+/// Info message about importing existing hooks.
+const INFO_IMPORTING_HOOKS: &str = "Importing existing hooks to hooks.d/";
 
 /// LFS mode determining whether to enable Git LFS integration.
 ///
@@ -236,6 +305,10 @@ enum Commands {
         /// Disable Git LFS integration (overrides auto-detection)
         #[arg(long, conflicts_with = "with_lfs")]
         no_lfs: bool,
+
+        /// Enable hook composition mode (hooks.d pattern for chaining multiple hooks)
+        #[arg(long)]
+        hooks_d: bool,
     },
     /// Manage Git LFS integration
     Lfs {
@@ -265,10 +338,11 @@ fn main() -> ExitCode {
             dirname,
             with_lfs,
             no_lfs,
+            hooks_d,
         }) => {
             let dirname = dirname.unwrap_or_else(|| DEFAULT_SAMOYED_DIR.to_string());
             let lfs_mode = determine_lfs_mode(with_lfs, no_lfs);
-            init_samoyed(&dirname, lfs_mode).map_or_else(
+            init_samoyed(&dirname, lfs_mode, hooks_d).map_or_else(
                 |err| {
                     eprintln!("{err}");
                     ExitCode::FAILURE
@@ -366,28 +440,85 @@ fn should_enable_lfs(mode: LfsMode) -> bool {
     }
 }
 
+/// Get the currently configured Git hooks path.
+///
+/// This function checks `git config core.hooksPath` to see if a custom hooks path
+/// is already configured. Returns None if not set (uses default .git/hooks).
+///
+/// # Returns
+///
+/// Returns Some(PathBuf) with the configured path, or None if using default
+fn get_existing_hooks_path() -> Option<PathBuf> {
+    let output = Command::new("git")
+        .args(["config", "--get", "core.hooksPath"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let path_str = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if path_str.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(path_str))
+    }
+}
+
+/// Detect existing hook files in the given directory.
+///
+/// Scans the directory for executable files matching standard Git hook names.
+///
+/// # Arguments
+///
+/// * `hooks_dir` - Path to the directory to scan for hooks
+///
+/// # Returns
+///
+/// Returns a vector of hook names (without directory path) that exist
+fn detect_existing_hooks(hooks_dir: &Path) -> Vec<String> {
+    let mut found_hooks = Vec::new();
+
+    if !hooks_dir.exists() {
+        return found_hooks;
+    }
+
+    for hook_name in GIT_HOOKS {
+        let hook_path = hooks_dir.join(hook_name);
+        if hook_path.exists() {
+            found_hooks.push((*hook_name).to_string());
+        }
+    }
+
+    found_hooks
+}
+
 /// Initialize Samoyed in the current git repository
 ///
 /// This function performs the following steps:
 /// 1. Checks if SAMOYED=0 (bypass mode)
 /// 2. Verifies we're inside a git repository
-/// 3. Validates the samoyed directory path
-/// 4. Creates the directory structure
-/// 5. Copies the wrapper script
-/// 6. Creates hook scripts (with or without LFS integration)
-/// 7. Creates sample pre-commit hook
-/// 8. Sets git config core.hooksPath
-/// 9. Creates .gitignore in the _ directory
+/// 3. Detects existing hooks and warns user
+/// 4. Validates the samoyed directory path
+/// 5. Creates the directory structure
+/// 6. Copies the wrapper script
+/// 7. Creates hook scripts (with or without LFS integration, with or without composition)
+/// 8. Imports existing hooks if in composition mode
+/// 9. Creates sample pre-commit hook
+/// 10. Sets git config core.hooksPath
+/// 11. Creates .gitignore in the _ directory
 ///
 /// # Arguments
 ///
 /// * `dirname` - The directory name for Samoyed hooks
 /// * `lfs_mode` - The LFS mode determining whether to enable LFS integration
+/// * `hooks_d` - Whether to use hook composition mode (hooks.d pattern)
 ///
 /// # Returns
 ///
 /// Returns Ok(()) on success, or an error message on failure
-fn init_samoyed(dirname: &str, lfs_mode: LfsMode) -> Result<(), String> {
+fn init_samoyed(dirname: &str, lfs_mode: LfsMode, hooks_d: bool) -> Result<(), String> {
     // Check for bypass mode
     if check_bypass_mode() {
         println!("{}", MSG_BYPASS_INIT);
@@ -398,6 +529,37 @@ fn init_samoyed(dirname: &str, lfs_mode: LfsMode) -> Result<(), String> {
     let git_root = get_git_root()?;
     let current_dir =
         env::current_dir().map_err(|e| format!("{}: {}", ERR_FAILED_CURRENT_DIR, e))?;
+
+    // Detect existing hooks before we change anything
+    let existing_hooks_path = get_existing_hooks_path()
+        .map(|p| {
+            if p.is_absolute() {
+                p
+            } else {
+                git_root.join(&p)
+            }
+        })
+        .unwrap_or_else(|| git_root.join(".git/hooks"));
+
+    let existing_hooks = detect_existing_hooks(&existing_hooks_path);
+
+    // Warn if existing hooks found
+    if !existing_hooks.is_empty() {
+        eprintln!("{}", WARN_EXISTING_HOOKS);
+        eprintln!(
+            "  Found {} hook(s) in: {}",
+            existing_hooks.len(),
+            existing_hooks_path.display()
+        );
+        for hook in &existing_hooks {
+            eprintln!("    - {}", hook);
+        }
+        if hooks_d {
+            eprintln!("  These hooks will be imported to hooks.d/");
+        } else {
+            eprintln!("  These hooks will become inactive. Use --hooks-d to import them.");
+        }
+    }
 
     // Validate and resolve the samoyed directory path
     let samoyed_dir = validate_samoyed_dir(&git_root, &current_dir, dirname)?;
@@ -410,14 +572,25 @@ fn init_samoyed(dirname: &str, lfs_mode: LfsMode) -> Result<(), String> {
         println!("{}", MSG_LFS_AUTO_ENABLED);
     }
 
+    // Display hooks.d mode message
+    if hooks_d {
+        println!("{}", INFO_HOOKS_D_MODE);
+    }
+
     // Create directory structure
-    create_directory_structure(&samoyed_dir)?;
+    create_directory_structure(&samoyed_dir, hooks_d)?;
 
     // Copy wrapper script to _/samoyed
     copy_wrapper_script(&samoyed_dir)?;
 
-    // Create hook scripts in _ directory (with or without LFS integration)
-    create_hook_scripts(&samoyed_dir, enable_lfs)?;
+    // Create hook scripts in _ directory (with or without LFS integration, with or without composition)
+    create_hook_scripts(&samoyed_dir, enable_lfs, hooks_d)?;
+
+    // Import existing hooks if in composition mode
+    if hooks_d && !existing_hooks.is_empty() {
+        println!("{}", INFO_IMPORTING_HOOKS);
+        import_existing_hooks(&samoyed_dir, &existing_hooks_path, &existing_hooks)?;
+    }
 
     // Create sample pre-commit hook
     create_sample_pre_commit(&samoyed_dir)?;
@@ -595,16 +768,17 @@ fn canonicalize_allowing_nonexistent(path: &Path) -> std::io::Result<PathBuf> {
 
 /// Create the directory structure for Samoyed
 ///
-/// Creates the main samoyed directory and the _ subdirectory.
+/// Creates the main samoyed directory, the _ subdirectory, and optionally hooks.d.
 ///
 /// # Arguments
 ///
 /// * `samoyed_dir` - Path to the samoyed directory
+/// * `hooks_d` - Whether to create the hooks.d directory for composition mode
 ///
 /// # Returns
 ///
 /// Returns Ok(()) on success, or an error message on failure
-fn create_directory_structure(samoyed_dir: &Path) -> Result<(), String> {
+fn create_directory_structure(samoyed_dir: &Path, hooks_d: bool) -> Result<(), String> {
     // Create main samoyed directory
     fs::create_dir_all(samoyed_dir)
         .map_err(|e| format!("{}: {}", ERR_FAILED_CREATE_SAMOYED_DIR, e))?;
@@ -613,6 +787,13 @@ fn create_directory_structure(samoyed_dir: &Path) -> Result<(), String> {
     let underscore_dir = samoyed_dir.join(WRAPPER_DIR_NAME);
     fs::create_dir_all(&underscore_dir)
         .map_err(|e| format!("{}: {}", ERR_FAILED_CREATE_WRAPPER_DIR, e))?;
+
+    // Create hooks.d subdirectory if in composition mode
+    if hooks_d {
+        let hooks_d_dir = samoyed_dir.join(HOOKS_D_DIR_NAME);
+        fs::create_dir_all(&hooks_d_dir)
+            .map_err(|e| format!("Error: Failed to create hooks.d directory: {}", e))?;
+    }
 
     Ok(())
 }
@@ -665,23 +846,26 @@ fn copy_wrapper_script(samoyed_dir: &Path) -> Result<(), String> {
 ///
 /// Each script sources the shared wrapper so user hooks run consistently.
 /// If LFS is enabled, hooks include Git LFS integration commands.
+/// If hooks_d is enabled, hooks run all scripts in hooks.d/ directory.
 ///
 /// # Arguments
 ///
 /// * `samoyed_dir` - Path to the samoyed directory
 /// * `enable_lfs` - Whether to include Git LFS integration in hooks
+/// * `hooks_d` - Whether to use hook composition mode (hooks.d pattern)
 ///
 /// # Returns
 ///
 /// Returns Ok(()) on success, or an error message on failure
-fn create_hook_scripts(samoyed_dir: &Path, enable_lfs: bool) -> Result<(), String> {
+fn create_hook_scripts(samoyed_dir: &Path, enable_lfs: bool, hooks_d: bool) -> Result<(), String> {
     let underscore_dir = samoyed_dir.join(WRAPPER_DIR_NAME);
 
-    // Choose the appropriate template based on LFS setting
-    let template = if enable_lfs {
-        HOOK_SCRIPT_TEMPLATE_WITH_LFS
-    } else {
-        HOOK_SCRIPT_TEMPLATE
+    // Choose the appropriate template based on LFS and hooks_d settings
+    let template = match (enable_lfs, hooks_d) {
+        (true, true) => HOOK_SCRIPT_TEMPLATE_HOOKS_D_WITH_LFS,
+        (true, false) => HOOK_SCRIPT_TEMPLATE_WITH_LFS,
+        (false, true) => HOOK_SCRIPT_TEMPLATE_HOOKS_D,
+        (false, false) => HOOK_SCRIPT_TEMPLATE,
     };
 
     for hook_name in GIT_HOOKS {
@@ -701,6 +885,53 @@ fn create_hook_scripts(samoyed_dir: &Path, enable_lfs: bool) -> Result<(), Strin
             fs::set_permissions(&hook_path, permissions)
                 .map_err(|e| format!("{}: {}", ERR_FAILED_SET_PERMISSIONS, e))?;
         }
+    }
+
+    Ok(())
+}
+
+/// Import existing hooks from the old hooks directory to hooks.d/
+///
+/// Copies existing hook files to the hooks.d directory with a naming pattern
+/// that ensures they run before user-defined hooks (50- prefix).
+///
+/// # Arguments
+///
+/// * `samoyed_dir` - Path to the samoyed directory
+/// * `old_hooks_path` - Path to the directory containing existing hooks
+/// * `hook_names` - List of hook names to import
+///
+/// # Returns
+///
+/// Returns Ok(()) on success, or an error message on failure
+fn import_existing_hooks(
+    samoyed_dir: &Path,
+    old_hooks_path: &Path,
+    hook_names: &[String],
+) -> Result<(), String> {
+    let hooks_d_dir = samoyed_dir.join(HOOKS_D_DIR_NAME);
+
+    for hook_name in hook_names {
+        let source_path = old_hooks_path.join(hook_name);
+        // Use 50- prefix so imported hooks run after LFS (00-) but before custom (99-)
+        let dest_path = hooks_d_dir.join(format!("50-imported.{}", hook_name));
+
+        // Copy the hook file
+        fs::copy(&source_path, &dest_path)
+            .map_err(|e| format!("Error: Failed to import hook '{}': {}", hook_name, e))?;
+
+        // Set executable permissions on Unix
+        #[cfg(unix)]
+        {
+            let metadata = fs::metadata(&dest_path)
+                .map_err(|e| format!("{}: {}", ERR_FAILED_GET_METADATA, e))?;
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&dest_path, permissions)
+                .map_err(|e| format!("{}: {}", ERR_FAILED_SET_PERMISSIONS, e))?;
+        }
+
+        eprintln!("  Imported: {} -> {}", hook_name, dest_path.display());
     }
 
     Ok(())
@@ -814,10 +1045,31 @@ fn create_gitignore(samoyed_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Detect if hooks.d mode is currently enabled.
+///
+/// Checks if the pre-push hook contains the SAMOYED_HOOKS_D marker.
+///
+/// # Arguments
+///
+/// * `samoyed_dir` - Path to the samoyed directory
+///
+/// # Returns
+///
+/// Returns true if hooks.d mode is enabled, false otherwise
+fn is_hooks_d_enabled(samoyed_dir: &Path) -> bool {
+    let pre_push_hook = samoyed_dir.join(WRAPPER_DIR_NAME).join("pre-push");
+    if let Ok(content) = fs::read_to_string(&pre_push_hook) {
+        content.contains("SAMOYED_HOOKS_D")
+    } else {
+        false
+    }
+}
+
 /// Enable Git LFS integration in an existing Samoyed setup.
 ///
 /// This function regenerates hook scripts with LFS integration enabled.
 /// It requires Samoyed to already be initialized in the repository.
+/// Preserves hooks.d mode if it was enabled.
 ///
 /// # Returns
 ///
@@ -842,8 +1094,11 @@ fn lfs_enable() -> Result<(), String> {
         return Err(ERR_SAMOYED_NOT_INITIALIZED.to_string());
     }
 
+    // Detect if hooks.d mode is enabled
+    let hooks_d = is_hooks_d_enabled(&samoyed_dir);
+
     // Regenerate hook scripts with LFS enabled
-    create_hook_scripts(&samoyed_dir, true)?;
+    create_hook_scripts(&samoyed_dir, true, hooks_d)?;
 
     println!("{}", MSG_LFS_ENABLED);
     Ok(())
@@ -853,6 +1108,7 @@ fn lfs_enable() -> Result<(), String> {
 ///
 /// This function regenerates hook scripts without LFS integration.
 /// It requires Samoyed to already be initialized in the repository.
+/// Preserves hooks.d mode if it was enabled.
 ///
 /// # Returns
 ///
@@ -867,8 +1123,11 @@ fn lfs_disable() -> Result<(), String> {
         return Err(ERR_SAMOYED_NOT_INITIALIZED.to_string());
     }
 
+    // Detect if hooks.d mode is enabled
+    let hooks_d = is_hooks_d_enabled(&samoyed_dir);
+
     // Regenerate hook scripts without LFS
-    create_hook_scripts(&samoyed_dir, false)?;
+    create_hook_scripts(&samoyed_dir, false, hooks_d)?;
 
     println!("{}", MSG_LFS_DISABLED);
     Ok(())
@@ -925,7 +1184,7 @@ fn lfs_status() {
         return;
     }
 
-    // Check if hooks have LFS integration by examining a hook file
+    // Check if hooks have LFS integration and hooks.d mode by examining a hook file
     let pre_push_hook = hooks_dir.join("pre-push");
     if let Ok(content) = fs::read_to_string(&pre_push_hook) {
         let has_lfs = content.contains("SAMOYED_LFS_BEGIN");
@@ -933,6 +1192,16 @@ fn lfs_status() {
             "Samoyed LFS integration: {}",
             if has_lfs {
                 "✓ Enabled"
+            } else {
+                "✗ Disabled"
+            }
+        );
+
+        let has_hooks_d = content.contains("SAMOYED_HOOKS_D");
+        println!(
+            "Hook composition mode: {}",
+            if has_hooks_d {
+                "✓ Enabled (hooks.d/)"
             } else {
                 "✗ Disabled"
             }
@@ -1026,7 +1295,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let samoyed_dir = temp_dir.path().join(".samoyed");
 
-        let result = create_directory_structure(&samoyed_dir);
+        let result = create_directory_structure(&samoyed_dir, false);
         assert!(result.is_ok());
 
         // Check that directories were created
@@ -1034,7 +1303,7 @@ mod tests {
         assert!(samoyed_dir.join("_").exists());
 
         // Test idempotency - should work even if directories exist
-        let result = create_directory_structure(&samoyed_dir);
+        let result = create_directory_structure(&samoyed_dir, false);
         assert!(result.is_ok());
     }
 
@@ -1070,7 +1339,7 @@ mod tests {
         let samoyed_dir = temp_dir.path().join(".samoyed");
         fs::create_dir_all(samoyed_dir.join("_")).unwrap();
 
-        let result = create_hook_scripts(&samoyed_dir, false);
+        let result = create_hook_scripts(&samoyed_dir, false, false);
         assert!(result.is_ok());
 
         // Check that all hook scripts were created
@@ -1211,7 +1480,7 @@ mod tests {
             env::set_var("SAMOYED", "0");
         }
 
-        let result = init_samoyed(".samoyed", LfsMode::ForceDisable);
+        let result = init_samoyed(".samoyed", LfsMode::ForceDisable, false);
         assert!(result.is_ok());
 
         unsafe {
@@ -1226,7 +1495,7 @@ mod tests {
         let original_dir = env::current_dir().unwrap();
         env::set_current_dir(temp_dir.path()).unwrap();
 
-        let result = init_samoyed(".samoyed", LfsMode::ForceDisable);
+        let result = init_samoyed(".samoyed", LfsMode::ForceDisable, false);
         assert!(result.is_err());
         let err_msg = result.unwrap_err();
         assert!(err_msg.contains("Not a git repository"));
@@ -1322,7 +1591,7 @@ mod tests {
         });
 
         // Run init
-        let result = init_samoyed(".samoyed", LfsMode::ForceDisable);
+        let result = init_samoyed(".samoyed", LfsMode::ForceDisable, false);
         assert!(result.is_ok());
 
         // Verify directory structure
@@ -1388,7 +1657,7 @@ mod tests {
         });
 
         // Run init with custom directory
-        let result = init_samoyed(".hooks", LfsMode::ForceDisable);
+        let result = init_samoyed(".hooks", LfsMode::ForceDisable, false);
         assert!(result.is_ok());
 
         // Verify custom directory was created
@@ -1418,11 +1687,11 @@ mod tests {
         });
 
         // Run init first time
-        let result1 = init_samoyed(".samoyed", LfsMode::ForceDisable);
+        let result1 = init_samoyed(".samoyed", LfsMode::ForceDisable, false);
         assert!(result1.is_ok());
 
         // Run init second time
-        let result2 = init_samoyed(".samoyed", LfsMode::ForceDisable);
+        let result2 = init_samoyed(".samoyed", LfsMode::ForceDisable, false);
         assert!(result2.is_ok());
 
         // Verify structure still exists
@@ -1688,7 +1957,7 @@ mod tests {
         let samoyed_dir = temp_dir.path().join(".samoyed");
         fs::create_dir_all(samoyed_dir.join("_")).unwrap();
 
-        let result = create_hook_scripts(&samoyed_dir, true);
+        let result = create_hook_scripts(&samoyed_dir, true, false);
         assert!(result.is_ok());
 
         // Check that hook scripts contain LFS integration
@@ -1705,7 +1974,7 @@ mod tests {
         let samoyed_dir = temp_dir.path().join(".samoyed");
         fs::create_dir_all(samoyed_dir.join("_")).unwrap();
 
-        let result = create_hook_scripts(&samoyed_dir, false);
+        let result = create_hook_scripts(&samoyed_dir, false, false);
         assert!(result.is_ok());
 
         // Check that hook scripts do NOT contain LFS integration
@@ -1723,7 +1992,7 @@ mod tests {
         env::set_current_dir(git_repo.path()).unwrap();
 
         // Run init with LFS force enabled
-        let result = init_samoyed(".samoyed", LfsMode::ForceEnable);
+        let result = init_samoyed(".samoyed", LfsMode::ForceEnable, false);
         assert!(result.is_ok());
 
         // Verify LFS integration in hooks
@@ -1745,6 +2014,7 @@ mod tests {
                 dirname,
                 with_lfs,
                 no_lfs,
+                ..
             }) => {
                 assert!(dirname.is_none());
                 assert!(with_lfs);
@@ -1760,6 +2030,7 @@ mod tests {
                 dirname,
                 with_lfs,
                 no_lfs,
+                ..
             }) => {
                 assert!(dirname.is_none());
                 assert!(!with_lfs);
