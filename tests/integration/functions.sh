@@ -41,7 +41,21 @@ if [ -z "${SAMOYED_BIN:-}" ]; then
     if is_containerized; then
         SAMOYED_BIN="$(command -v samoyed || echo /usr/local/bin/samoyed)"
     else
-        SAMOYED_BIN="$(pwd)/target/release/samoyed"
+        # Try target/release/samoyed first (normal builds without --target)
+        if [ -f "$(pwd)/target/release/samoyed" ]; then
+            SAMOYED_BIN="$(pwd)/target/release/samoyed"
+        else
+            # Try to find in target-specific directories (CI builds with --target flag)
+            # Check common target triples
+            for target_binary in target/*/release/samoyed; do
+                if [ -f "$target_binary" ]; then
+                    SAMOYED_BIN="$(pwd)/$target_binary"
+                    break
+                fi
+            done
+            # Fallback to default path if still not found
+            SAMOYED_BIN="${SAMOYED_BIN:-$(pwd)/target/release/samoyed}"
+        fi
     fi
 fi
 
