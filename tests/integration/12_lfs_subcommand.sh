@@ -51,7 +51,7 @@ else
     "$SAMOYED_BIN" lfs enable
 
     # Verify hooks now have LFS integration
-    pre_push_hook="..samoyed/..e-push"
+    pre_push_hook=".samoyed/_/pre-push"
     if ! grep -q "SAMOYED_LFS_BEGIN" "$pre_push_hook"; then
         error "LFS not enabled in hooks after 'lfs enable'"
     fi

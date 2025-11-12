@@ -17,7 +17,7 @@ echo "  1. Testing --hooks-d flag..."
 init_samoyed --hooks-d
 
 # Verify hooks.d directory exists
-if [ ! -d "..samoyed/hooks.d" ]; then
+if [ ! -d ".samoyed/hooks.d" ]; then
     error "hooks.d directory not created"
 fi
 
@@ -25,12 +25,12 @@ ok "hooks.d directory created with --hooks-d flag"
 
 # Test 2: Verify hook scripts contain SAMOYED_HOOKS_D marker
 echo "  2. Verifying hook composition code in hooks..."
-pre_commit_hook="..samoyed/..e-commit"
+pre_commit_hook=".samoyed/_/pre-commit"
 if ! grep -q "SAMOYED_HOOKS_D" "$pre_commit_hook"; then
     error "SAMOYED_HOOKS_D marker not found in hooks"
 fi
 
-if ! grep -q 'hooks_d_dir="$(dirname "$0")/..oks.d"' "$pre_commit_hook"; then
+if ! grep -q 'hooks_d_dir="$(dirname "$0")/../hooks.d"' "$pre_commit_hook"; then
     error "hooks.d directory reference not found in hooks"
 fi
 
@@ -40,35 +40,35 @@ ok "Hook scripts contain composition code"
 echo "  3. Testing hook execution order..."
 
 # Create output file to track execution order
-output_file=".hook_execution_order.txt"
+output_file="hook_execution_order.txt"
 
 # Create first hook (should run first - lexicographic order)
-cat > "..samoyed/hooks.d/10-first.pre-commit" <<'EOF'
+cat > ".samoyed/hooks.d/10-first.pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "10-first" >> hook_execution_order.txt
 EOF
-chmod +x "..samoyed/hooks.d/10-first.pre-commit"
+chmod +x ".samoyed/hooks.d/10-first.pre-commit"
 
 # Create second hook (should run second)
-cat > "..samoyed/hooks.d/20-second.pre-commit" <<'EOF'
+cat > ".samoyed/hooks.d/20-second.pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "20-second" >> hook_execution_order.txt
 EOF
-chmod +x "..samoyed/hooks.d/20-second.pre-commit"
+chmod +x ".samoyed/hooks.d/20-second.pre-commit"
 
 # Create third hook (should run third)
-cat > "..samoyed/hooks.d/30-third.pre-commit" <<'EOF'
+cat > ".samoyed/hooks.d/30-third.pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "30-third" >> hook_execution_order.txt
 EOF
-chmod +x "..samoyed/hooks.d/30-third.pre-commit"
+chmod +x ".samoyed/hooks.d/30-third.pre-commit"
 
 # Create user hook in .samoyed/ (should run after hooks.d)
-cat > "..samoyed/pre-commit" <<'EOF'
+cat > ".samoyed/pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "user-hook" >> hook_execution_order.txt
 EOF
-chmod +x "..samoyed/pre-commit"
+chmod +x ".samoyed/pre-commit"
 
 # Create a test commit to trigger pre-commit hook
 # Already in test directory
@@ -105,12 +105,12 @@ git reset --hard HEAD~1 >/dev/null 2>&1 || true
 rm -f "$output_file"
 
 # Create a failing hook
-cat > "..samoyed/hooks.d/15-fail.pre-commit" <<'EOF'
+cat > ".samoyed/hooks.d/15-fail.pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "15-fail" >> hook_execution_order.txt
 exit 1
 EOF
-chmod +x "..samoyed/hooks.d/15-fail.pre-commit"
+chmod +x ".samoyed/hooks.d/15-fail.pre-commit"
 
 # Try to commit - should fail
 echo "test2" > testfile2.txt
@@ -142,10 +142,10 @@ rm -f "$output_file"
 git reset --hard HEAD >/dev/null 2>&1 || true
 
 # Remove the failing hook
-rm -f "..samoyed/hooks.d/15-fail.pre-commit"
+rm -f ".samoyed/hooks.d/15-fail.pre-commit"
 
 # Create a non-executable hook
-cat > "..samoyed/hooks.d/25-notexec.pre-commit" <<'EOF'
+cat > ".samoyed/hooks.d/25-notexec.pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "25-notexec" >> hook_execution_order.txt
 EOF

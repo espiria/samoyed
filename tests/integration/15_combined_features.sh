@@ -17,7 +17,7 @@ echo "  1. Testing --with-lfs --hooks-d together..."
 init_samoyed --with-lfs --hooks-d
 
 # Verify hooks.d directory exists
-if [ ! -d "..samoyed/hooks.d" ]; then
+if [ ! -d ".samoyed/hooks.d" ]; then
     error "hooks.d directory not created"
 fi
 
@@ -26,7 +26,7 @@ ok "Both flags accepted together"
 # Test 2: Verify hooks have BOTH LFS and hooks.d code
 echo "  2. Verifying combined template..."
 
-pre_push_hook="..samoyed/..e-push"
+pre_push_hook=".samoyed/_/pre-push"
 content=$(cat "$pre_push_hook")
 
 if ! echo "$content" | grep -q "SAMOYED_LFS_BEGIN"; then
@@ -56,24 +56,24 @@ ok "Combined template has correct structure and order"
 echo "  3. Testing execution order in combined mode..."
 
 # Create output file
-output_file=".execution_order.txt"
+output_file="execution_order.txt"
 
 # Note: We can't easily test LFS commands without actual LFS setup,
 # but we can test hooks.d and user hook order
 
 # Create a hook in hooks.d
-cat > "..samoyed/hooks.d/50-test.pre-commit" <<'EOF'
+cat > ".samoyed/hooks.d/50-test.pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "hooks.d-script" >> execution_order.txt
 EOF
-chmod +x "..samoyed/hooks.d/50-test.pre-commit"
+chmod +x ".samoyed/hooks.d/50-test.pre-commit"
 
 # Create user hook
-cat > "..samoyed/pre-commit" <<'EOF'
+cat > ".samoyed/pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "user-hook" >> execution_order.txt
 EOF
-chmod +x "..samoyed/pre-commit"
+chmod +x ".samoyed/pre-commit"
 
 # Trigger hook
 # Already in test directory
@@ -105,7 +105,7 @@ echo "  4. Testing LFS toggle preserves hooks.d mode..."
 # Initialize with hooks.d only
 init_samoyed --hooks-d
 
-pre_push_hook="..samoyed/..e-push"
+pre_push_hook=".samoyed/_/pre-push"
 
 # Verify hooks.d but no LFS
 if ! grep -q "SAMOYED_HOOKS_D" "$pre_push_hook"; then
@@ -156,18 +156,18 @@ setup
 echo "  5. Testing hook import with LFS..."
 
 # Create existing hook
-cat > "..git/hooks/pre-commit" <<'EOF'
+cat > ".git/hooks/pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "EXISTING_HOOK" >> existing_test.txt
 exit 0
 EOF
-chmod +x "..git/hooks/pre-commit"
+chmod +x ".git/hooks/pre-commit"
 
 # Initialize with both flags
 init_samoyed --with-lfs --hooks-d
 
 # Verify imported hook exists
-if [ ! -f "..samoyed/hooks.d/50-imported.pre-commit" ]; then
+if [ ! -f ".samoyed/hooks.d/50-imported.pre-commit" ]; then
     error "Existing hook not imported with combined flags"
 fi
 
@@ -177,7 +177,7 @@ echo "test" > testfile.txt
 git add testfile.txt
 git commit -m "test" >/dev/null 2>&1 || error "Commit failed"
 
-if [ ! -f ".existing_test.txt" ]; then
+if [ ! -f "existing_test.txt" ]; then
     error "Imported hook did not execute in combined mode"
 fi
 

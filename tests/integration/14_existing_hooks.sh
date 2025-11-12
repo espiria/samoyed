@@ -16,19 +16,19 @@ echo "Test: Existing hook detection and import"
 echo "  1. Setting up existing hooks..."
 
 # Create some existing hooks
-cat > "..git/hooks/pre-commit" <<'EOF'
+cat > ".git/hooks/pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "Existing pre-commit hook"
 exit 0
 EOF
-chmod +x "..git/hooks/pre-commit"
+chmod +x ".git/hooks/pre-commit"
 
-cat > "..git/hooks/pre-push" <<'EOF'
+cat > ".git/hooks/pre-push" <<'EOF'
 #!/usr/bin/env sh
 echo "Existing pre-push hook"
 exit 0
 EOF
-chmod +x "..git/hooks/pre-push"
+chmod +x ".git/hooks/pre-push"
 
 ok "Created existing hooks in .git/hooks"
 
@@ -80,19 +80,19 @@ setup
 echo "  4. Testing import with --hooks-d..."
 
 # Create existing hooks again
-cat > "..git/hooks/pre-commit" <<'EOF'
+cat > ".git/hooks/pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "IMPORTED_HOOK_RAN" >> imported_hook_test.txt
 exit 0
 EOF
-chmod +x "..git/hooks/pre-commit"
+chmod +x ".git/hooks/pre-commit"
 
-cat > "..git/hooks/commit-msg" <<'EOF'
+cat > ".git/hooks/commit-msg" <<'EOF'
 #!/usr/bin/env sh
 echo "commit-msg hook"
 exit 0
 EOF
-chmod +x "..git/hooks/commit-msg"
+chmod +x ".git/hooks/commit-msg"
 
 # Initialize with --hooks-d
 output=$("$SAMOYED_BIN" init --hooks-d 2>&1)
@@ -102,11 +102,11 @@ if ! echo "$output" | grep -q "Importing existing hooks"; then
 fi
 
 # Verify hooks were imported
-if [ ! -f "..samoyed/hooks.d/50-imported.pre-commit" ]; then
+if [ ! -f ".samoyed/hooks.d/50-imported.pre-commit" ]; then
     error "pre-commit hook not imported"
 fi
 
-if [ ! -f "..samoyed/hooks.d/50-imported.commit-msg" ]; then
+if [ ! -f ".samoyed/hooks.d/50-imported.commit-msg" ]; then
     error "commit-msg hook not imported"
 fi
 
@@ -115,7 +115,7 @@ ok "Existing hooks imported to hooks.d/"
 # Test 5: Verify imported hooks have correct permissions
 echo "  5. Testing imported hook permissions..."
 
-if [ ! -x "..samoyed/hooks.d/50-imported.pre-commit" ]; then
+if [ ! -x ".samoyed/hooks.d/50-imported.pre-commit" ]; then
     error "Imported hook is not executable"
 fi
 
@@ -129,11 +129,11 @@ echo "test" > testfile.txt
 git add testfile.txt
 git commit -m "test" >/dev/null 2>&1 || error "Commit failed"
 
-if [ ! -f ".imported_hook_test.txt" ]; then
+if [ ! -f "imported_hook_test.txt" ]; then
     error "Imported hook did not run"
 fi
 
-if ! grep -q "IMPORTED_HOOK_RAN" ".imported_hook_test.txt"; then
+if ! grep -q "IMPORTED_HOOK_RAN" "imported_hook_test.txt"; then
     error "Imported hook did not execute correctly"
 fi
 
@@ -147,14 +147,14 @@ echo "  7. Testing with custom hooks path..."
 
 # Set custom hooks path
 git config core.hooksPath ".custom-hooks"
-mkdir -p "..custom-hooks"
+mkdir -p ".custom-hooks"
 
-cat > "..custom-hooks/pre-commit" <<'EOF'
+cat > ".custom-hooks/pre-commit" <<'EOF'
 #!/usr/bin/env sh
 echo "Custom path hook"
 exit 0
 EOF
-chmod +x "..custom-hooks/pre-commit"
+chmod +x ".custom-hooks/pre-commit"
 
 # Initialize with --hooks-d
 output=$("$SAMOYED_BIN" init --hooks-d 2>&1)
@@ -168,7 +168,7 @@ if ! echo "$output" | grep -q ".custom-hooks"; then
 fi
 
 # Verify hook was imported
-if [ ! -f "..samoyed/hooks.d/50-imported.pre-commit" ]; then
+if [ ! -f ".samoyed/hooks.d/50-imported.pre-commit" ]; then
     error "Hook from custom path not imported"
 fi
 
@@ -203,7 +203,7 @@ if ! echo "$output" | grep -q "Existing.*hooks.*detected"; then
 fi
 
 # Verify hook was imported
-if [ ! -f "..samoyed/hooks.d/50-imported.pre-commit" ]; then
+if [ ! -f ".samoyed/hooks.d/50-imported.pre-commit" ]; then
     error "Hook from absolute path not imported"
 fi
 
