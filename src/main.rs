@@ -145,6 +145,27 @@ const HOOK_SCRIPT_TEMPLATE: &str = r#"#!/usr/bin/env sh
 . "$(dirname "$0")/samoyed"
 "#;
 
+/// Shell script template for Git hooks with LFS integration.
+///
+/// This template includes calls to git-lfs commands before running user hooks.
+/// The LFS commands are conditionally executed only if git-lfs is available.
+const HOOK_SCRIPT_TEMPLATE_WITH_LFS: &str = r#"#!/usr/bin/env sh
+# SAMOYED_LFS_BEGIN - Auto-managed Git LFS integration
+if command -v git-lfs >/dev/null 2>&1; then
+    hook_name="$(basename "$0")"
+    case "$hook_name" in
+        pre-push)
+            git lfs pre-push "$@" || exit $?
+            ;;
+        post-checkout|post-commit|post-merge)
+            git lfs post-checkout "$@"
+            ;;
+    esac
+fi
+# SAMOYED_LFS_END
+. "$(dirname "$0")/samoyed"
+"#;
+
 /// Sample pre-commit hook template with placeholder comments for user customization.
 const SAMPLE_PRE_COMMIT_CONTENT: &str = r#"#!/usr/bin/env sh
 # Add your pre-commit checks here. For example:
@@ -154,6 +175,35 @@ const SAMPLE_PRE_COMMIT_CONTENT: &str = r#"#!/usr/bin/env sh
 
 /// Gitignore pattern that excludes all files in the wrapper directory.
 const GITIGNORE_CONTENT: &str = "*\n";
+
+/// Message displayed when Git LFS is auto-detected and enabled.
+const MSG_LFS_AUTO_ENABLED: &str = "Git LFS detected - enabling LFS integration";
+
+/// Message displayed when Git LFS integration is explicitly enabled.
+const MSG_LFS_ENABLED: &str = "Git LFS integration enabled";
+
+/// Message displayed when Git LFS integration is explicitly disabled.
+const MSG_LFS_DISABLED: &str = "Git LFS integration disabled";
+
+/// Error message when git-lfs command is not found.
+const ERR_LFS_NOT_INSTALLED: &str = "Error: git-lfs is not installed or not in PATH";
+
+/// Error message when Samoyed is not initialized in the repository.
+const ERR_SAMOYED_NOT_INITIALIZED: &str =
+    "Error: Samoyed is not initialized. Run 'samoyed init' first";
+
+/// LFS mode determining whether to enable Git LFS integration.
+///
+/// This enum controls how Samoyed handles Git LFS integration during initialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LfsMode {
+    /// Auto-detect LFS based on repository configuration
+    Auto,
+    /// Force enable LFS integration regardless of detection
+    ForceEnable,
+    /// Force disable LFS integration regardless of detection
+    ForceDisable,
+}
 
 /// Command-line interface for Samoyed.
 ///
@@ -178,7 +228,31 @@ enum Commands {
         /// Directory name for Samoyed hooks (default: .samoyed)
         #[arg(value_name = "samoyed-dirname")]
         dirname: Option<String>,
+
+        /// Enable Git LFS integration (overrides auto-detection)
+        #[arg(long, conflicts_with = "no_lfs")]
+        with_lfs: bool,
+
+        /// Disable Git LFS integration (overrides auto-detection)
+        #[arg(long, conflicts_with = "with_lfs")]
+        no_lfs: bool,
     },
+    /// Manage Git LFS integration
+    Lfs {
+        #[command(subcommand)]
+        command: LfsCommands,
+    },
+}
+
+/// Subcommands for managing Git LFS integration
+#[derive(Subcommand)]
+enum LfsCommands {
+    /// Enable Git LFS integration in existing Samoyed setup
+    Enable,
+    /// Disable Git LFS integration in existing Samoyed setup
+    Disable,
+    /// Show Git LFS integration status
+    Status,
 }
 
 /// Main entry point for Samoyed
@@ -187,9 +261,14 @@ enum Commands {
 /// If no command is provided, displays the help message and returns a success exit code.
 fn main() -> ExitCode {
     match Cli::parse().command {
-        Some(Commands::Init { dirname }) => {
+        Some(Commands::Init {
+            dirname,
+            with_lfs,
+            no_lfs,
+        }) => {
             let dirname = dirname.unwrap_or_else(|| DEFAULT_SAMOYED_DIR.to_string());
-            init_samoyed(&dirname).map_or_else(
+            let lfs_mode = determine_lfs_mode(with_lfs, no_lfs);
+            init_samoyed(&dirname, lfs_mode).map_or_else(
                 |err| {
                     eprintln!("{err}");
                     ExitCode::FAILURE
@@ -197,7 +276,93 @@ fn main() -> ExitCode {
                 |_| ExitCode::SUCCESS,
             )
         }
+        Some(Commands::Lfs { command }) => match command {
+            LfsCommands::Enable => lfs_enable().map_or_else(
+                |err| {
+                    eprintln!("{err}");
+                    ExitCode::FAILURE
+                },
+                |_| ExitCode::SUCCESS,
+            ),
+            LfsCommands::Disable => lfs_disable().map_or_else(
+                |err| {
+                    eprintln!("{err}");
+                    ExitCode::FAILURE
+                },
+                |_| ExitCode::SUCCESS,
+            ),
+            LfsCommands::Status => {
+                lfs_status();
+                ExitCode::SUCCESS
+            }
+        },
         None => ExitCode::SUCCESS,
+    }
+}
+
+/// Determine the LFS mode based on command-line flags.
+///
+/// This function implements the hybrid approach where explicit flags override auto-detection.
+///
+/// # Arguments
+///
+/// * `with_lfs` - Whether --with-lfs flag was provided
+/// * `no_lfs` - Whether --no-lfs flag was provided
+///
+/// # Returns
+///
+/// Returns the appropriate LfsMode based on the flags
+fn determine_lfs_mode(with_lfs: bool, no_lfs: bool) -> LfsMode {
+    if with_lfs {
+        LfsMode::ForceEnable
+    } else if no_lfs {
+        LfsMode::ForceDisable
+    } else {
+        LfsMode::Auto
+    }
+}
+
+/// Detect if Git LFS is configured in the current repository.
+///
+/// This function uses git commands exclusively (no file parsing) to determine if LFS is set up:
+/// 1. Checks if git-lfs is installed and available in PATH
+/// 2. Checks if LFS filters are configured in git config
+///
+/// # Returns
+///
+/// Returns true if LFS is detected and configured, false otherwise
+fn detect_lfs_in_repo() -> bool {
+    // Check if git-lfs is installed
+    let lfs_installed = Command::new("git")
+        .args(["lfs", "version"])
+        .output()
+        .is_ok_and(|o| o.status.success());
+
+    if !lfs_installed {
+        return false;
+    }
+
+    // Check if LFS filter is configured in the repository
+    Command::new("git")
+        .args(["config", "--get", "filter.lfs.process"])
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+/// Determine if LFS should be enabled based on the LFS mode.
+///
+/// # Arguments
+///
+/// * `mode` - The LFS mode (Auto, ForceEnable, or ForceDisable)
+///
+/// # Returns
+///
+/// Returns true if LFS should be enabled, false otherwise
+fn should_enable_lfs(mode: LfsMode) -> bool {
+    match mode {
+        LfsMode::ForceEnable => true,
+        LfsMode::ForceDisable => false,
+        LfsMode::Auto => detect_lfs_in_repo(),
     }
 }
 
@@ -209,7 +374,7 @@ fn main() -> ExitCode {
 /// 3. Validates the samoyed directory path
 /// 4. Creates the directory structure
 /// 5. Copies the wrapper script
-/// 6. Creates hook scripts
+/// 6. Creates hook scripts (with or without LFS integration)
 /// 7. Creates sample pre-commit hook
 /// 8. Sets git config core.hooksPath
 /// 9. Creates .gitignore in the _ directory
@@ -217,11 +382,12 @@ fn main() -> ExitCode {
 /// # Arguments
 ///
 /// * `dirname` - The directory name for Samoyed hooks
+/// * `lfs_mode` - The LFS mode determining whether to enable LFS integration
 ///
 /// # Returns
 ///
 /// Returns Ok(()) on success, or an error message on failure
-fn init_samoyed(dirname: &str) -> Result<(), String> {
+fn init_samoyed(dirname: &str, lfs_mode: LfsMode) -> Result<(), String> {
     // Check for bypass mode
     if check_bypass_mode() {
         println!("{}", MSG_BYPASS_INIT);
@@ -236,14 +402,22 @@ fn init_samoyed(dirname: &str) -> Result<(), String> {
     // Validate and resolve the samoyed directory path
     let samoyed_dir = validate_samoyed_dir(&git_root, &current_dir, dirname)?;
 
+    // Determine if LFS should be enabled
+    let enable_lfs = should_enable_lfs(lfs_mode);
+
+    // Display LFS status message if auto-detected
+    if enable_lfs && lfs_mode == LfsMode::Auto {
+        println!("{}", MSG_LFS_AUTO_ENABLED);
+    }
+
     // Create directory structure
     create_directory_structure(&samoyed_dir)?;
 
     // Copy wrapper script to _/samoyed
     copy_wrapper_script(&samoyed_dir)?;
 
-    // Create hook scripts in _ directory
-    create_hook_scripts(&samoyed_dir)?;
+    // Create hook scripts in _ directory (with or without LFS integration)
+    create_hook_scripts(&samoyed_dir, enable_lfs)?;
 
     // Create sample pre-commit hook
     create_sample_pre_commit(&samoyed_dir)?;
@@ -490,22 +664,31 @@ fn copy_wrapper_script(samoyed_dir: &Path) -> Result<(), String> {
 /// - Windows: Default filesystem permissions (executable attribute handled automatically)
 ///
 /// Each script sources the shared wrapper so user hooks run consistently.
+/// If LFS is enabled, hooks include Git LFS integration commands.
 ///
 /// # Arguments
 ///
 /// * `samoyed_dir` - Path to the samoyed directory
+/// * `enable_lfs` - Whether to include Git LFS integration in hooks
 ///
 /// # Returns
 ///
 /// Returns Ok(()) on success, or an error message on failure
-fn create_hook_scripts(samoyed_dir: &Path) -> Result<(), String> {
+fn create_hook_scripts(samoyed_dir: &Path, enable_lfs: bool) -> Result<(), String> {
     let underscore_dir = samoyed_dir.join(WRAPPER_DIR_NAME);
+
+    // Choose the appropriate template based on LFS setting
+    let template = if enable_lfs {
+        HOOK_SCRIPT_TEMPLATE_WITH_LFS
+    } else {
+        HOOK_SCRIPT_TEMPLATE
+    };
 
     for hook_name in GIT_HOOKS {
         let hook_path = underscore_dir.join(hook_name);
 
         // Write the hook script
-        fs::write(&hook_path, HOOK_SCRIPT_TEMPLATE)
+        fs::write(&hook_path, template)
             .map_err(|e| format!("{} '{}': {}", ERR_FAILED_WRITE_HOOK, hook_name, e))?;
 
         // Set permissions to 755 (rwxr-xr-x)
@@ -629,6 +812,134 @@ fn create_gitignore(samoyed_dir: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Enable Git LFS integration in an existing Samoyed setup.
+///
+/// This function regenerates hook scripts with LFS integration enabled.
+/// It requires Samoyed to already be initialized in the repository.
+///
+/// # Returns
+///
+/// Returns Ok(()) on success, or an error message on failure
+fn lfs_enable() -> Result<(), String> {
+    // Check if git-lfs is installed
+    let lfs_installed = Command::new("git")
+        .args(["lfs", "version"])
+        .output()
+        .is_ok_and(|o| o.status.success());
+
+    if !lfs_installed {
+        return Err(ERR_LFS_NOT_INSTALLED.to_string());
+    }
+
+    // Get git root and find samoyed directory
+    let git_root = get_git_root()?;
+    let samoyed_dir = git_root.join(DEFAULT_SAMOYED_DIR);
+
+    // Check if Samoyed is initialized
+    if !samoyed_dir.exists() || !samoyed_dir.join(WRAPPER_DIR_NAME).exists() {
+        return Err(ERR_SAMOYED_NOT_INITIALIZED.to_string());
+    }
+
+    // Regenerate hook scripts with LFS enabled
+    create_hook_scripts(&samoyed_dir, true)?;
+
+    println!("{}", MSG_LFS_ENABLED);
+    Ok(())
+}
+
+/// Disable Git LFS integration in an existing Samoyed setup.
+///
+/// This function regenerates hook scripts without LFS integration.
+/// It requires Samoyed to already be initialized in the repository.
+///
+/// # Returns
+///
+/// Returns Ok(()) on success, or an error message on failure
+fn lfs_disable() -> Result<(), String> {
+    // Get git root and find samoyed directory
+    let git_root = get_git_root()?;
+    let samoyed_dir = git_root.join(DEFAULT_SAMOYED_DIR);
+
+    // Check if Samoyed is initialized
+    if !samoyed_dir.exists() || !samoyed_dir.join(WRAPPER_DIR_NAME).exists() {
+        return Err(ERR_SAMOYED_NOT_INITIALIZED.to_string());
+    }
+
+    // Regenerate hook scripts without LFS
+    create_hook_scripts(&samoyed_dir, false)?;
+
+    println!("{}", MSG_LFS_DISABLED);
+    Ok(())
+}
+
+/// Show the current Git LFS integration status.
+///
+/// This function displays:
+/// - Whether git-lfs is installed
+/// - Whether LFS is configured in the repository
+/// - Whether Samoyed hooks have LFS integration enabled
+fn lfs_status() {
+    // Check if git-lfs is installed
+    let lfs_installed = Command::new("git")
+        .args(["lfs", "version"])
+        .output()
+        .is_ok_and(|o| o.status.success());
+
+    println!(
+        "Git LFS installation: {}",
+        if lfs_installed { "✓" } else { "✗" }
+    );
+
+    if !lfs_installed {
+        println!("  Install git-lfs to use LFS integration");
+        return;
+    }
+
+    // Check if LFS is configured in the repo
+    let lfs_configured = Command::new("git")
+        .args(["config", "--get", "filter.lfs.process"])
+        .output()
+        .is_ok_and(|o| o.status.success());
+
+    println!(
+        "LFS configured in repo: {}",
+        if lfs_configured { "✓" } else { "✗" }
+    );
+
+    // Check if Samoyed is initialized
+    let git_root = match get_git_root() {
+        Ok(root) => root,
+        Err(_) => {
+            println!("Samoyed status: Not in a git repository");
+            return;
+        }
+    };
+
+    let samoyed_dir = git_root.join(DEFAULT_SAMOYED_DIR);
+    let hooks_dir = samoyed_dir.join(WRAPPER_DIR_NAME);
+
+    if !hooks_dir.exists() {
+        println!("Samoyed status: Not initialized");
+        return;
+    }
+
+    // Check if hooks have LFS integration by examining a hook file
+    let pre_push_hook = hooks_dir.join("pre-push");
+    if let Ok(content) = fs::read_to_string(&pre_push_hook) {
+        let has_lfs = content.contains("SAMOYED_LFS_BEGIN");
+        println!(
+            "Samoyed LFS integration: {}",
+            if has_lfs {
+                "✓ Enabled"
+            } else {
+                "✗ Disabled"
+            }
+        );
+    } else {
+        println!("Samoyed status: Hook files not readable");
+    }
 }
 
 #[cfg(test)]
@@ -759,7 +1070,7 @@ mod tests {
         let samoyed_dir = temp_dir.path().join(".samoyed");
         fs::create_dir_all(samoyed_dir.join("_")).unwrap();
 
-        let result = create_hook_scripts(&samoyed_dir);
+        let result = create_hook_scripts(&samoyed_dir, false);
         assert!(result.is_ok());
 
         // Check that all hook scripts were created
@@ -861,7 +1172,7 @@ mod tests {
         // Test parsing init command
         let cli = Cli::parse_from(["samoyed", "init"]);
         match cli.command {
-            Some(Commands::Init { dirname }) => {
+            Some(Commands::Init { dirname, .. }) => {
                 assert!(dirname.is_none());
             }
             _ => panic!("Expected Init command"),
@@ -870,7 +1181,7 @@ mod tests {
         // Test parsing init command with dirname
         let cli = Cli::parse_from(["samoyed", "init", ".hooks"]);
         match cli.command {
-            Some(Commands::Init { dirname }) => {
+            Some(Commands::Init { dirname, .. }) => {
                 assert_eq!(dirname, Some(".hooks".to_string()));
             }
             _ => panic!("Expected Init command"),
@@ -900,7 +1211,7 @@ mod tests {
             env::set_var("SAMOYED", "0");
         }
 
-        let result = init_samoyed(".samoyed");
+        let result = init_samoyed(".samoyed", LfsMode::ForceDisable);
         assert!(result.is_ok());
 
         unsafe {
@@ -915,7 +1226,7 @@ mod tests {
         let original_dir = env::current_dir().unwrap();
         env::set_current_dir(temp_dir.path()).unwrap();
 
-        let result = init_samoyed(".samoyed");
+        let result = init_samoyed(".samoyed", LfsMode::ForceDisable);
         assert!(result.is_err());
         let err_msg = result.unwrap_err();
         assert!(err_msg.contains("Not a git repository"));
@@ -1011,7 +1322,7 @@ mod tests {
         });
 
         // Run init
-        let result = init_samoyed(".samoyed");
+        let result = init_samoyed(".samoyed", LfsMode::ForceDisable);
         assert!(result.is_ok());
 
         // Verify directory structure
@@ -1077,7 +1388,7 @@ mod tests {
         });
 
         // Run init with custom directory
-        let result = init_samoyed(".hooks");
+        let result = init_samoyed(".hooks", LfsMode::ForceDisable);
         assert!(result.is_ok());
 
         // Verify custom directory was created
@@ -1107,11 +1418,11 @@ mod tests {
         });
 
         // Run init first time
-        let result1 = init_samoyed(".samoyed");
+        let result1 = init_samoyed(".samoyed", LfsMode::ForceDisable);
         assert!(result1.is_ok());
 
         // Run init second time
-        let result2 = init_samoyed(".samoyed");
+        let result2 = init_samoyed(".samoyed", LfsMode::ForceDisable);
         assert!(result2.is_ok());
 
         // Verify structure still exists
@@ -1346,5 +1657,125 @@ mod tests {
         );
 
         env::set_current_dir(original_dir).unwrap();
+    }
+
+    /// Test LFS mode determination
+    #[test]
+    fn test_determine_lfs_mode() {
+        assert_eq!(determine_lfs_mode(true, false), LfsMode::ForceEnable);
+        assert_eq!(determine_lfs_mode(false, true), LfsMode::ForceDisable);
+        assert_eq!(determine_lfs_mode(false, false), LfsMode::Auto);
+    }
+
+    /// Test should_enable_lfs function
+    #[test]
+    fn test_should_enable_lfs() {
+        // ForceEnable should always return true
+        assert!(should_enable_lfs(LfsMode::ForceEnable));
+
+        // ForceDisable should always return false
+        assert!(!should_enable_lfs(LfsMode::ForceDisable));
+
+        // Auto mode depends on repository configuration (may be true or false)
+        // We just verify it doesn't panic
+        let _auto_result = should_enable_lfs(LfsMode::Auto);
+    }
+
+    /// Test create_hook_scripts with LFS enabled
+    #[test]
+    fn test_create_hook_scripts_with_lfs() {
+        let temp_dir = TempDir::new().unwrap();
+        let samoyed_dir = temp_dir.path().join(".samoyed");
+        fs::create_dir_all(samoyed_dir.join("_")).unwrap();
+
+        let result = create_hook_scripts(&samoyed_dir, true);
+        assert!(result.is_ok());
+
+        // Check that hook scripts contain LFS integration
+        let pre_push_hook = samoyed_dir.join("_").join("pre-push");
+        let content = fs::read_to_string(&pre_push_hook).unwrap();
+        assert!(content.contains("SAMOYED_LFS_BEGIN"));
+        assert!(content.contains("git lfs pre-push"));
+    }
+
+    /// Test create_hook_scripts without LFS
+    #[test]
+    fn test_create_hook_scripts_without_lfs() {
+        let temp_dir = TempDir::new().unwrap();
+        let samoyed_dir = temp_dir.path().join(".samoyed");
+        fs::create_dir_all(samoyed_dir.join("_")).unwrap();
+
+        let result = create_hook_scripts(&samoyed_dir, false);
+        assert!(result.is_ok());
+
+        // Check that hook scripts do NOT contain LFS integration
+        let pre_push_hook = samoyed_dir.join("_").join("pre-push");
+        let content = fs::read_to_string(&pre_push_hook).unwrap();
+        assert!(!content.contains("SAMOYED_LFS_BEGIN"));
+        assert!(!content.contains("git lfs"));
+    }
+
+    /// Test init_samoyed with LFS force enable
+    #[test]
+    fn test_init_samoyed_with_lfs_force_enable() {
+        let git_repo = create_test_git_repo();
+        let original_dir = env::current_dir().unwrap();
+        env::set_current_dir(git_repo.path()).unwrap();
+
+        // Run init with LFS force enabled
+        let result = init_samoyed(".samoyed", LfsMode::ForceEnable);
+        assert!(result.is_ok());
+
+        // Verify LFS integration in hooks
+        let samoyed_dir = git_repo.path().join(".samoyed");
+        let pre_push_hook = samoyed_dir.join("_").join("pre-push");
+        let content = fs::read_to_string(&pre_push_hook).unwrap();
+        assert!(content.contains("SAMOYED_LFS_BEGIN"));
+
+        env::set_current_dir(original_dir).unwrap();
+    }
+
+    /// Test CLI parsing with LFS flags
+    #[test]
+    fn test_cli_parsing_with_lfs_flags() {
+        // Test parsing init with --with-lfs
+        let cli = Cli::parse_from(["samoyed", "init", "--with-lfs"]);
+        match cli.command {
+            Some(Commands::Init {
+                dirname,
+                with_lfs,
+                no_lfs,
+            }) => {
+                assert!(dirname.is_none());
+                assert!(with_lfs);
+                assert!(!no_lfs);
+            }
+            _ => panic!("Expected Init command"),
+        }
+
+        // Test parsing init with --no-lfs
+        let cli = Cli::parse_from(["samoyed", "init", "--no-lfs"]);
+        match cli.command {
+            Some(Commands::Init {
+                dirname,
+                with_lfs,
+                no_lfs,
+            }) => {
+                assert!(dirname.is_none());
+                assert!(!with_lfs);
+                assert!(no_lfs);
+            }
+            _ => panic!("Expected Init command"),
+        }
+
+        // Test parsing lfs status subcommand
+        let cli = Cli::parse_from(["samoyed", "lfs", "status"]);
+        match cli.command {
+            Some(Commands::Lfs { command }) => match command {
+                LfsCommands::Status => {}
+                _ => panic!("Expected Status command"),
+            },
+            _ => panic!("Expected Lfs command"),
+        }
     }
 }
