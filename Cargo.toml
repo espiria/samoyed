@@ -36,11 +36,11 @@ path = "src/main.rs"
 
 
 [dependencies]
-clap = { version = "4.5.48", features = ["derive"] }
+clap = { version = "4.5.53", features = ["derive"] }
 
 
 [dev-dependencies]
-tempfile = "3.23"
+tempfile = "3.24"
 
 
 [profile.release]
