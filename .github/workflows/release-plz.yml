@@ -40,7 +40,7 @@ jobs:
       !contains(github.event.head_commit.message, '[skip ci]')
     steps:
       - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -70,7 +70,7 @@ jobs:
       # Install Rust toolchain required by release-plz for Cargo operations
       - name: Install Rust toolchain
         if: steps.check.outputs.should_release == 'true'
-        uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
+        uses: actions-rust-lang/setup-rust-toolchain@a0b538fa0b742a6aa35d6e2c169b4bd06d225a98 # v1.15.3
         with:
           toolchain: 1.90.0
 
@@ -85,7 +85,7 @@ jobs:
       # Creates Git tag and triggers the release workflow
       - name: Run release-plz release
         if: steps.check.outputs.should_release == 'true'
-        uses: MarcoIeni/release-plz-action@487eb7b5c085a664d5c5ca05f4159bd9b591182a # v0.5.120
+        uses: MarcoIeni/release-plz-action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5.128
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
