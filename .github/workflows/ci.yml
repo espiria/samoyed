@@ -113,7 +113,7 @@ jobs:
           toolchain: 1.90.0
 
       - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
+        uses: cargo-bins/cargo-binstall@0b24824336e2b3800b0f89d9e08b2c08bfa3dcdd # v1.17.9
 
       - name: Install and run security audit
         run: |
@@ -459,7 +459,7 @@ jobs:
           save-if: false
 
       - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
+        uses: cargo-bins/cargo-binstall@0b24824336e2b3800b0f89d9e08b2c08bfa3dcdd # v1.17.9
 
       - name: Install and run tarpaulin
         run: |
@@ -473,7 +473,7 @@ jobs:
           cargo tarpaulin --timeout 120 --avoid-cfg-tarpaulin
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5.5.3
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           files: target/tarpaulin/cobertura.xml
           flags: unittests
